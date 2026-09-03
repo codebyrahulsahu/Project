@@ -1,0 +1,12 @@
+{
+  "appId": "com.arenalite.app",
+  "appName": "Arena Lite",
+  "webDir": "../arena-app",
+  "android": {
+    "allowMixedContent": false,
+    "backgroundColor": "#0B0B0F"
+  },
+  "server": {
+    "androidScheme": "https"
+  }
+}
