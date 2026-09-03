@@ -17,6 +17,8 @@
   const outA = $("outA"), outB = $("outB");
   const paneTitleA = $("paneTitleA"), paneTitleB = $("paneTitleB"), paneMetaA = $("paneMetaA"), paneMetaB = $("paneMetaB");
   const tabNameA = $("tabNameA"), tabNameB = $("tabNameB"), swipeHint = $("swipeHint");
+  const agentPanel = $("agentPanel"), agentModelEl = $("agentModel"), agentStatus = $("agentStatus");
+  const agentSteps = $("agentSteps"), agentOut = $("agentOut"), agentFiles = $("agentFiles"), agentSuggestions = $("agentSuggestions");
   const voteRow = $("voteRow"), reveal = $("reveal"), revealA = $("revealA"), revealB = $("revealB"), againBtn = $("againBtn");
 
   const lbList = $("lbList"), lbEmpty = $("lbEmpty");
@@ -121,7 +123,7 @@
   function short(m) { return String(m || "").split("/").pop(); }
 
   /* ================= MODE SHEET ================= */
-  const MODE_LABEL = { battle: "Battle", side: "Side by side", single: "Direct chat" };
+  const MODE_LABEL = { battle: "Battle", side: "Side by side", single: "Direct chat", agent: "Agent" };
   function openSheet() {
     modeSheet.hidden = false;
     modeSheet.querySelectorAll(".sheet-opt").forEach(o => o.classList.toggle("active", o.dataset.mode === settings.mode));
@@ -140,7 +142,11 @@
   function syncSheetPick() {
     sheetPick.hidden = settings.mode === "battle";
     pickBWrap.hidden = settings.mode !== "side";
-    modeLabel.textContent = MODE_LABEL[settings.mode];
+    modeLabel.textContent = MODE_LABEL[settings.mode] || "Battle";
+    const isAgent = settings.mode === "agent";
+    agentSuggestions.hidden = !isAgent;
+    suggestions.hidden = isAgent;
+    promptInput.placeholder = isAgent ? "Ask the agent to search, calculate, code…" : "Ask anything…";
   }
   modeBtn.addEventListener("click", openSheet);
   modeSheet.querySelector("[data-close]").addEventListener("click", closeSheet);
@@ -173,7 +179,7 @@
     if (!text) return;
     startBattle(text);
   });
-  suggestions.querySelectorAll(".suggestion").forEach(b => b.addEventListener("click", () => startBattle(b.textContent)));
+  document.querySelectorAll(".suggestion").forEach(b => b.addEventListener("click", () => startBattle(b.textContent)));
 
   // keyboard on mobile: visualViewport shrinks → mark body so CSS can tighten up
   if (window.visualViewport) {
@@ -195,7 +201,7 @@
   function pickModels() {
     const models = Store.modelsFor(settings.provider);
     if (!models.length) return null;
-    if (settings.mode === "single") return [settings.pickA && models.includes(settings.pickA) ? settings.pickA : models[0], null];
+    if (settings.mode === "single" || settings.mode === "agent") return [settings.pickA && models.includes(settings.pickA) ? settings.pickA : models[0], null];
     if (settings.mode === "side") {
       const a = models.includes(settings.pickA) ? settings.pickA : models[0];
       const b = models.includes(settings.pickB) ? settings.pickB : (models.find(m => m !== a) || a);
@@ -215,6 +221,7 @@
     outA.innerHTML = ""; outB.innerHTML = "";
     outA.className = "pane-body md"; outB.className = "pane-body md";
     voteRow.hidden = true; reveal.hidden = true;
+    resetAgentPanel();
     promptInput.value = ""; autosize(); sendBtn.disabled = true;
     promptInput.focus({ preventScroll: true });
   }
@@ -223,11 +230,14 @@
 
   function setPaneNames(revealNames) {
     const mode = (current && current.mode) || settings.mode;
-    const single = mode === "single";
+    const agent = mode === "agent";
+    const single = mode === "single" || agent;
     const sideOrRevealed = mode === "side" || revealNames;
     paneB.hidden = single;
     paneTabs.hidden = single;
     swipeHint.hidden = single;
+    panes.hidden = agent;
+    agentPanel.hidden = !agent;
     panes.classList.toggle("single", single);
 
     const nameA = sideOrRevealed || single ? current.modelA : "Model A";
@@ -249,6 +259,8 @@
 
     const [modelA, modelB] = picked;
     current = { id: String(Date.now()), prompt: text, modelA, modelB, textA: "", textB: "", msA: 0, msB: 0, vote: null, mode: settings.mode, ts: Date.now(), provider: settings.provider };
+
+    if (settings.mode === "agent") return runAgent(text, modelA, provider);
 
     // UI reset
     hero.hidden = true; thread.hidden = false;
@@ -349,6 +361,16 @@
     hero.hidden = true; thread.hidden = false;
     userMsg.textContent = b.prompt;
     setPaneNames(!!b.vote);
+    if (b.mode === "agent") {
+      resetAgentPanel();
+      agentModelEl.textContent = b.modelA;
+      (b.steps || []).forEach(st => { addStep({ id: st.id || st.name + Math.random(), name: st.name, args: st.args }); finishStep(st.id || null, st, true); });
+      agentOut.className = "agent-answer md"; renderNow(agentOut, b.textA || "");
+      renderFiles(b.files || {});
+      agentStatus.textContent = b.msA ? `${(b.msA / 1000).toFixed(1)}s` : "";
+      reveal.hidden = true; voteRow.hidden = true;
+      return;
+    }
     outA.className = "pane-body md"; outB.className = "pane-body md";
     renderNow(outA, b.textA || ""); renderNow(outB, b.textB || "");
     paneMetaA.textContent = b.msA ? `${(b.msA / 1000).toFixed(1)}s` : ""; paneMetaB.textContent = b.msB ? `${(b.msB / 1000).toFixed(1)}s` : "";
@@ -378,6 +400,124 @@
       if (panes.dataset.active !== which) activatePane(which, false);
     }, 80);
   }, { passive: true });
+
+  /* ================= AGENT MODE ================= */
+  const STEP_ICON = { web_search: "🔎", fetch_page: "📄", run_js: "⚙️", calculator: "🧮", write_file: "💾", get_time: "🕒", thought: "💭" };
+
+  function resetAgentPanel() {
+    agentSteps.innerHTML = ""; agentOut.innerHTML = ""; agentFiles.innerHTML = "";
+    agentOut.className = "agent-answer md"; agentStatus.textContent = ""; agentStatus.classList.remove("busy");
+    agentModelEl.textContent = "";
+  }
+  function argSummary(name, args) {
+    if (!args) return "";
+    if (name === "web_search") return args.query || "";
+    if (name === "fetch_page") return args.url || "";
+    if (name === "calculator") return args.expression || "";
+    if (name === "run_js") return (args.code || "").split("\n")[0].slice(0, 80);
+    if (name === "write_file") return args.path || "";
+    return Object.values(args).join(", ").slice(0, 80);
+  }
+  function addStep({ id, name, args }) {
+    const li = document.createElement("li");
+    li.className = "step running"; li.dataset.id = id;
+    li.innerHTML = `
+      <button class="step-head" type="button" aria-expanded="false">
+        <span class="step-ic">${STEP_ICON[name] || "🔧"}</span>
+        <span class="step-name">${Markdown.esc(name)}</span>
+        <span class="step-arg">${Markdown.esc(argSummary(name, args))}</span>
+        <span class="step-ms">…</span>
+        <svg class="step-chev" viewBox="0 0 24 24"><path d="M7 10l5 5 5-5z"/></svg>
+      </button>
+      <div class="step-body">
+        <div class="lbl">Input</div><pre>${Markdown.esc(JSON.stringify(args, null, 2))}</pre>
+        <div class="lbl">Output</div><pre class="step-out">running…</pre>
+      </div>`;
+    li.querySelector(".step-head").addEventListener("click", () => {
+      const open = li.classList.toggle("open");
+      li.querySelector(".step-head").setAttribute("aria-expanded", open);
+    });
+    agentSteps.appendChild(li);
+    li.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    return li;
+  }
+  function addThought(text) {
+    const li = document.createElement("li");
+    li.className = "step thought";
+    li.innerHTML = `<div class="step-head"><span class="step-ic">${STEP_ICON.thought}</span><span class="step-arg">${Markdown.esc(text)}</span></div>`;
+    agentSteps.appendChild(li);
+  }
+  function finishStep(id, { result, ms, error }, silent) {
+    const li = id ? agentSteps.querySelector(`.step[data-id="${CSS.escape(id)}"]`) : agentSteps.lastElementChild;
+    if (!li) return;
+    li.classList.remove("running"); if (error) li.classList.add("error");
+    li.querySelector(".step-ms").textContent = ms != null ? (ms >= 1000 ? (ms / 1000).toFixed(1) + "s" : ms + "ms") : "";
+    let out = ""; try { out = JSON.stringify(result, null, 2); } catch { out = String(result); }
+    li.querySelector(".step-out").textContent = (out || "").slice(0, 4000);
+    if (!silent && navigator.vibrate) navigator.vibrate(5);
+  }
+  function renderFiles(files) {
+    agentFiles.innerHTML = "";
+    Object.entries(files).forEach(([path, content]) => {
+      const card = document.createElement("div");
+      card.className = "file-card";
+      card.innerHTML = `<div class="file-head"><span>💾</span><span class="file-name">${Markdown.esc(path)}</span>
+        <button class="file-act" data-act="copy">Copy</button><button class="file-act" data-act="dl">Download</button></div>
+        <pre>${Markdown.esc(content.slice(0, 6000))}</pre>`;
+      card.querySelector('[data-act="copy"]').addEventListener("click", async () => { try { await navigator.clipboard.writeText(content); showToast("Copied"); } catch { showToast("Copy failed"); } });
+      card.querySelector('[data-act="dl"]').addEventListener("click", () => {
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(new Blob([content], { type: "text/plain" })); a.download = path.split("/").pop(); a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+      });
+      agentFiles.appendChild(card);
+    });
+  }
+
+  async function runAgent(text, model, provider) {
+    hero.hidden = true; thread.hidden = false;
+    userMsg.textContent = text;
+    voteRow.hidden = true; reveal.hidden = true;
+    setPaneNames(false);
+    resetAgentPanel();
+    agentModelEl.textContent = model;
+    agentStatus.textContent = "Working…"; agentStatus.classList.add("busy");
+    agentOut.classList.add("streaming");
+    promptInput.value = ""; autosize(); promptInput.blur();
+    window.scrollTo({ top: 0 });
+
+    controller = new AbortController();
+    streaming = true; setStreamingUI(true);
+    const started = performance.now();
+    current.steps = []; current.files = {};
+
+    try {
+      const r = await Agent.run({
+        provider, settings, model, prompt: text, signal: controller.signal,
+        onEvent: ev => {
+          if (ev.type === "step") addThought(ev.text);
+          else if (ev.type === "tool_call") { addStep(ev); current.steps.push({ id: ev.id, name: ev.name, args: ev.args }); agentOut.innerHTML = ""; }
+          else if (ev.type === "tool_result") { finishStep(ev.id, ev); const st = current.steps.find(x => x.id === ev.id); if (st) Object.assign(st, { result: ev.result, ms: ev.ms, error: ev.error }); }
+          else if (ev.type === "token") { current.textA = ev.acc; scheduleRender(agentOut, ev.acc); }
+        },
+      });
+      current.textA = r.text || ""; current.files = r.files || {};
+      renderNow(agentOut, current.textA); renderFiles(current.files);
+      current.msA = Math.round(performance.now() - started);
+      agentStatus.textContent = `${(current.msA / 1000).toFixed(1)}s · ${current.steps.length} tool${current.steps.length === 1 ? "" : "s"}`;
+    } catch (err) {
+      if (err && err.name === "AbortError") { agentStatus.textContent = "stopped"; renderNow(agentOut, current.textA || "_Stopped._"); }
+      else { agentOut.classList.add("error"); agentOut.textContent = "⚠️ " + (err && err.message ? err.message : "Agent failed"); agentStatus.textContent = "error"; }
+    } finally {
+      agentOut.classList.remove("streaming"); agentStatus.classList.remove("busy");
+      agentSteps.querySelectorAll(".step.running").forEach(li => { li.classList.remove("running"); li.querySelector(".step-ms").textContent = "—"; });
+      streaming = false; setStreamingUI(false); controller = null;
+      // keep history light: trim big tool outputs
+      const slim = { ...current, steps: current.steps.map(st => ({ ...st, result: truncateDeep(st.result) })) };
+      Store.saveBattle(slim);
+    }
+  }
+  function truncateDeep(v) { try { const s = JSON.stringify(v); return s.length > 2000 ? { _truncated: s.slice(0, 2000) + "…" } : v; } catch { return String(v).slice(0, 2000); } }
 
   /* ================= LEADERBOARD ================= */
   function renderLeaderboard() {

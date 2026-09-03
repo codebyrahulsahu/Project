@@ -1,9 +1,9 @@
 /* Arena Lite service worker — cache-first for the app shell, network-only for API calls. */
-const CACHE = "arena-lite-v1";
+const CACHE = "arena-lite-v2";
 const SHELL = [
   "./", "./index.html", "./manifest.webmanifest",
   "./css/style.css",
-  "./js/markdown.js", "./js/providers.js", "./js/store.js", "./js/app.js",
+  "./js/markdown.js", "./js/providers.js", "./js/store.js", "./js/agent.js", "./js/app.js",
   "./icons/icon.svg", "./icons/icon-192.png", "./icons/icon-512.png", "./icons/icon-maskable-512.png",
 ];
 

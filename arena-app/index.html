@@ -71,6 +71,12 @@
       <div class="hero-glow" aria-hidden="true"></div>
       <h1 class="hero-title">Which AI is better?<br>You decide.</h1>
       <p class="hero-sub">Ask anything. Two anonymous models answer side by side. Vote — then see who they were.</p>
+      <div class="suggestions" id="agentSuggestions" hidden>
+        <button class="suggestion">Search the web: what's the latest news about ISRO?</button>
+        <button class="suggestion">Calculate 18% GST on ₹48,750 and show the steps</button>
+        <button class="suggestion">Write a JS function that checks if a number is prime and test it</button>
+        <button class="suggestion">What time is it right now, and what day of the week?</button>
+      </div>
       <div class="suggestions" id="suggestions">
         <button class="suggestion">Explain quantum computing to a 10-year-old</button>
         <button class="suggestion">Write a haiku about monsoon in Rajasthan</button>
@@ -82,6 +88,18 @@
     <!-- conversation -->
     <section class="thread" id="thread" hidden>
       <div class="user-msg" id="userMsg"></div>
+
+      <!-- agent mode: live tool timeline + files (hidden in other modes) -->
+      <section class="agent" id="agentPanel" hidden>
+        <header class="agent-head">
+          <span class="agent-badge">🤖 Agent</span>
+          <span class="agent-model" id="agentModel"></span>
+          <span class="agent-status" id="agentStatus"></span>
+        </header>
+        <ol class="steps" id="agentSteps"></ol>
+        <div class="agent-answer md" id="agentOut"></div>
+        <div class="files" id="agentFiles"></div>
+      </section>
 
       <!-- battle tabs: only on phone (desktop shows both panes) -->
       <div class="pane-tabs" id="paneTabs" role="tablist">
@@ -231,6 +249,9 @@
       <button class="sheet-opt" data-mode="single">
         <b>💬 Direct chat</b><span>Talk to one model of your choice.</span>
       </button>
+      <button class="sheet-opt" data-mode="agent">
+        <b>🤖 Agent</b><span>One model with tools: web search, read pages, run code, write files. Steps shown live.</span>
+      </button>
       <div class="sheet-pick" id="sheetPick" hidden>
         <label>Model A <select id="pickA"></select></label>
         <label id="pickBWrap">Model B <select id="pickB"></select></label>
@@ -244,6 +265,7 @@
 <script src="js/markdown.js"></script>
 <script src="js/providers.js"></script>
 <script src="js/store.js"></script>
+<script src="js/agent.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

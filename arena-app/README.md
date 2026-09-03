@@ -9,6 +9,9 @@ phone ki home screen pe install ho jata hai.
 - ⚔️ **Battle** — 2 anonymous models side-by-side answer dete hain, vote karo, phir names reveal hote hain
 - 👀 **Side by side** — dono models khud choose karo
 - 💬 **Direct chat** — ek model se seedha baat
+- 🤖 **Agent** — ek model + tools: web search, page read, JS sandbox, calculator, write file.
+  Har tool call phone pe live timeline mein dikhta hai (tap karke input/output dekho), files ka
+  Copy/Download card banta hai
 - 🏆 **Leaderboard** — aapke votes se Elo rating (device pe hi store hoti hai)
 - 🕘 **History** — pichli battles drawer mein (left edge se swipe karke bhi khulta hai)
 - 🔌 **Providers** — Demo (bina key ke UI try karo), OpenRouter, ya koi bhi OpenAI-compatible API
@@ -29,6 +32,21 @@ phone ki home screen pe install ho jata hai.
 | Enter dabate hi galti se send | touch devices pe Enter = newline, send button se bhejo; desktop pe Enter = send |
 | Landscape mein jagah kam | compact nav, hero glow off |
 | Hover states touch pe atak jaate hain | `@media (hover:hover)` guard |
+
+## Agent mode kaise kaam karta hai
+
+- Model ko OpenAI-style **function calling** (`tools` / `tool_calls`) di jaati hai; loop max 8 rounds
+- Tools browser mein hi chalte hain — koi server nahi:
+  - `web_search` → DuckDuckGo Instant Answer + Wikipedia search (dono CORS-open, bina key)
+  - `fetch_page` → `r.jina.ai` reader (page → markdown)
+  - `run_js` → Web Worker sandbox, 5s timeout, DOM/network access nahi
+  - `calculator` → whitelist-checked expression (sirf numbers, operators, `Math.*`)
+  - `write_file` → session memory mein; UI mein card se copy/download
+  - `get_time` → device ka time/timezone
+- Tool-calling ke liye model ko function calling support karna chahiye (GPT-4o-mini, Claude via
+  OpenRouter, Gemini, Llama-3.x-70B, Qwen-2.5 sab karte hain)
+- Demo provider mein loop **simulate** hota hai — calculator/run_js/write_file asli chalte hain,
+  web tools network hone pe asli, warna canned
 
 ## Chalao
 
@@ -65,6 +83,7 @@ arena-app/
 ├── js/markdown.js        → chhota safe markdown renderer (HTML-escaped, streaming-friendly)
 ├── js/providers.js       → Demo provider + OpenAI-compatible SSE streaming client
 ├── js/store.js           → localStorage: settings, history, Elo ratings
+├── js/agent.js           → Agent loop: tool registry, OpenAI tool_calls streaming, Worker sandbox
 ├── js/app.js             → UI logic: navigation, drawer, battle flow, vote, panes swipe, keyboard handling
 ├── sw.js                 → service worker (app shell cache, API calls kabhi cache nahi)
 ├── manifest.webmanifest  → PWA manifest
@@ -81,5 +100,6 @@ arena-app/
 ## Limitations
 
 - Sab kuch local hai — koi account, koi sync, koi shared leaderboard nahi
-- Multi-turn conversation nahi (har battle ek prompt) — follow-up ke liye "Direct chat" mode extend kar sakte ho
+- Multi-turn conversation nahi (har battle/agent run ek prompt)
+- Agent ka web search free public endpoints pe hai — rate-limit ya block ho sakte hain; tab model apni knowledge se jawab deta hai aur bata deta hai
 - Demo mode canned answers deta hai, sirf UI feel ke liye
