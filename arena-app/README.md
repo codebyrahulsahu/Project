@@ -43,8 +43,10 @@ phone ki home screen pe install ho jata hai.
   - `calculator` → whitelist-checked expression (sirf numbers, operators, `Math.*`)
   - `write_file` → session memory mein; UI mein card se copy/download
   - `get_time` → device ka time/timezone
-- Tool-calling ke liye model ko function calling support karna chahiye (GPT-4o-mini, Claude via
-  OpenRouter, Gemini, Llama-3.x-70B, Qwen-2.5 sab karte hain)
+- Tool-calling ke liye model ko **function calling** support karna chahiye. Agent mode apne aap
+  tool-capable model chunta hai; agar phir bhi provider mana kare
+  (“`tool calling` is not supported with this model”) toh app us model ko yaad rakh kar
+  **bina tools ke plain chat** mein retry karta hai — kaam rukta nahi
 - Demo provider mein loop **simulate** hota hai — calculator/run_js/write_file asli chalte hain,
   web tools network hone pe asli, warna canned
 
@@ -63,10 +65,15 @@ Cloudflare Pages) pe daal do. HTTPS pe PWA install prompt aur mic-jaisi cheezein
 
 ## Asli models connect karna
 
-1. **Settings** tab → Provider **OpenRouter** chuno
-2. https://openrouter.ai/keys se key lao, paste karo
-3. Model pool mein jo IDs chahiye add/remove karo (e.g. `openai/gpt-4o-mini`, `anthropic/claude-3.5-haiku`)
+1. **Settings** tab → Provider chuno (OpenRouter / Groq / Gemini / OpenAI-compatible)
+2. Key lao (OpenRouter: https://openrouter.ai/keys · Groq: https://console.groq.com/keys ·
+   Gemini: https://aistudio.google.com/apikey) aur paste karo
+3. Key save hote hi app **“Discover models”** khud chala kar provider ki live model list laata hai —
+   hardcoded defaults sirf fallback hain (providers model IDs retire karte rehte hain)
 4. Battle tab pe wapas → ask karo
+
+Agar koi model kaam na kare (404 / “decommissioned”), app us ID ko local list se hata deta hai
+aur list refresh kar deta hai; warna **Discover models** button dabao.
 
 Koi aur OpenAI-compatible endpoint ho toh **OpenAI-compatible** chunke Base URL bhar do
 (e.g. Groq: `https://api.groq.com/openai/v1`, local Ollama: `http://localhost:11434/v1`).

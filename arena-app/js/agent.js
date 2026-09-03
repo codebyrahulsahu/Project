@@ -161,7 +161,7 @@ Rules:
       events: {type:'step', text} | {type:'tool_call', id, name, args} | {type:'tool_result', id, name, result, ms, error}
               | {type:'token', text, acc} | {type:'done', text, files, steps} */
   async function run(opts) {
-    const { provider, settings, model, prompt, signal, onEvent } = opts;
+    const { provider, settings, model, prompt, signal, onEvent, noTools } = opts;
     const ctx = { signal, files: new Map() };
     const steps = [];
 
@@ -176,7 +176,7 @@ Rules:
     const MAX_ITER = 8;
     for (let iter = 0; iter < MAX_ITER; iter++) {
       onEvent({ type: "step", text: iter === 0 ? "Thinking…" : "Continuing…" });
-      const turn = await chatWithTools({ provider, settings, model, messages, signal, onToken: (piece, acc) => onEvent({ type: "token", text: piece, acc }) });
+      const turn = await chatWithTools({ provider, settings, model, messages, signal, noTools, onToken: (piece, acc) => onEvent({ type: "token", text: piece, acc }) });
 
       if (!turn.tool_calls.length) {
         return finish(turn.content, ctx, steps, onEvent);

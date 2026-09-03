@@ -198,11 +198,34 @@
     vv.addEventListener("scroll", onVV);
   }
 
+  /* ================= TOOL CAPABILITY ================= */
+  /* Providers reject tool calls on models that don't support them, and the rejected
+     model is remembered per device so Agent mode never picks it again. */
+  function modelSupportsTools(model) {
+    const noTools = settings.noTools || {};
+    if ((noTools[settings.provider] || []).includes(model)) return false;
+    return Providers.supportsTools(settings.provider, model) !== false;
+  }
+  function markNoTools(model) {
+    const map = { ...(settings.noTools || {}) };
+    const list = map[settings.provider] || [];
+    if (!list.includes(model)) map[settings.provider] = [...list, model];
+    settings = Store.setSettings({ noTools: map });
+  }
+
   /* ================= BATTLE ================= */
   function pickModels() {
     const models = Store.modelsFor(settings.provider);
     if (!models.length) return null;
-    if (settings.mode === "single" || settings.mode === "agent") return [settings.pickA && models.includes(settings.pickA) ? settings.pickA : models[0], null];
+    if (settings.mode === "agent") {
+      // Agent mode needs function calling — whisper/compound/plain chat models 400 on tools.
+      const capable = models.filter(m => modelSupportsTools(m));
+      const a = models.includes(settings.pickA) && modelSupportsTools(settings.pickA)
+        ? settings.pickA
+        : (capable[0] || models[0]);
+      return [a, null];
+    }
+    if (settings.mode === "single") return [settings.pickA && models.includes(settings.pickA) ? settings.pickA : models[0], null];
     if (settings.mode === "side") {
       const a = models.includes(settings.pickA) ? settings.pickA : models[0];
       const b = models.includes(settings.pickB) ? settings.pickB : (models.find(m => m !== a) || a);
@@ -261,7 +284,10 @@
     const [modelA, modelB] = picked;
     current = { id: String(Date.now()), prompt: text, modelA, modelB, textA: "", textB: "", msA: 0, msB: 0, vote: null, mode: settings.mode, ts: Date.now(), provider: settings.provider };
 
-    if (settings.mode === "agent") return runAgent(text, modelA, provider);
+    if (settings.mode === "agent") {
+      if (!modelSupportsTools(modelA)) showToast(`${short(modelA)} may not support tools — Agent mode can fail`);
+      return runAgent(text, modelA, provider);
+    }
 
     // UI reset
     hero.hidden = true; thread.hidden = false;
@@ -295,6 +321,7 @@
     }).catch(err => {
       out.classList.remove("streaming");
       if (err && err.name === "AbortError") { renderNow(out, current[key] || "_Stopped._"); meta.textContent = "stopped"; return; }
+      if (Providers.isDeadModelError && Providers.isDeadModelError(err)) dropDeadModel(model);
       out.classList.add("error");
       out.textContent = "⚠️ " + Providers.friendlyError(err, provider);
       meta.textContent = "error";
@@ -475,7 +502,7 @@
     });
   }
 
-  async function runAgent(text, model, provider) {
+  async function runAgent(text, model, provider, opts = {}) {
     hero.hidden = true; thread.hidden = false;
     userMsg.textContent = text;
     voteRow.hidden = true; reveal.hidden = true;
@@ -494,7 +521,7 @@
 
     try {
       const r = await Agent.run({
-        provider, settings, model, prompt: text, signal: controller.signal,
+        provider, settings, model, prompt: text, signal: controller.signal, noTools: !!opts.noTools,
         onEvent: ev => {
           if (ev.type === "step") addThought(ev.text);
           else if (ev.type === "tool_call") { addStep(ev); current.steps.push({ id: ev.id, name: ev.name, args: ev.args }); agentOut.innerHTML = ""; }
@@ -508,7 +535,16 @@
       agentStatus.textContent = `${(current.msA / 1000).toFixed(1)}s · ${current.steps.length} tool${current.steps.length === 1 ? "" : "s"}`;
     } catch (err) {
       if (err && err.name === "AbortError") { agentStatus.textContent = "stopped"; renderNow(agentOut, current.textA || "_Stopped._"); }
-      else { agentOut.classList.add("error"); agentOut.textContent = "⚠️ " + Providers.friendlyError(err, provider); agentStatus.textContent = "error"; }
+      else if (Providers.isToolUnsupportedError && Providers.isToolUnsupportedError(err) && !opts.noTools) {
+        // The provider refuses tools for this model — remember it and answer as plain chat.
+        markNoTools(model);
+        showToast(`${short(model)} can't call tools — retrying without them`);
+        return runAgent(text, model, provider, { noTools: true });
+      }
+      else {
+        if (Providers.isDeadModelError && Providers.isDeadModelError(err)) dropDeadModel(model);
+        agentOut.classList.add("error"); agentOut.textContent = "⚠️ " + Providers.friendlyError(err, provider); agentStatus.textContent = "error";
+      }
     } finally {
       agentOut.classList.remove("streaming"); agentStatus.classList.remove("busy");
       agentSteps.querySelectorAll(".step.running").forEach(li => { li.classList.remove("running"); li.querySelector(".step-ms").textContent = "—"; });
@@ -577,7 +613,18 @@
     settings = Store.setSettings({ provider: b.dataset.provider });
     renderSettings();
   }));
-  apiKey.addEventListener("change", () => { settings = Store.setSettings({ apiKey: apiKey.value.trim() }); showToast("Key saved on this device"); });
+  // Saving a key also pulls that provider's live model list, so the hardcoded defaults
+  // (which go stale) get replaced by whatever the account can actually call.
+  apiKey.addEventListener("change", async () => {
+    const next = apiKey.value.trim();
+    const changed = next !== (settings.apiKey || "");
+    settings = Store.setSettings({ apiKey: next });
+    if (!changed) return;
+    showToast("Key saved on this device");
+    if (!next) return;
+    const ok = await discoverModels({ silent: true });
+    if (!ok) showToast("Key saved, but the model list couldn't load — check the key, then tap “Discover models”");
+  });
   baseUrl.addEventListener("change", () => { settings = Store.setSettings({ baseUrl: baseUrl.value.trim() }); });
   systemPrompt.addEventListener("change", () => { settings = Store.setSettings({ systemPrompt: systemPrompt.value }); });
   toggleKey.addEventListener("click", () => { apiKey.type = apiKey.type === "password" ? "text" : "password"; });
@@ -591,26 +638,54 @@
   addModelBtn.addEventListener("click", addModel);
   newModel.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); addModel(); } });
 
-  // Pull the live model list straight from the provider (Groq / Gemini / OpenRouter / OpenAI …)
-  discoverBtn.addEventListener("click", async () => {
+  /* Pull the live model list straight from the provider (Groq / Gemini / OpenRouter / OpenAI …).
+     Model IDs get retired all the time, so this beats trusting any hardcoded default list. */
+  let discovering = false;
+  async function discoverModels({ silent = false } = {}) {
     const p = Providers[settings.provider];
-    if (!p || typeof p.listModels !== "function") { showToast("This provider has no model list to fetch"); return; }
-    if (p.needsKey && !settings.apiKey) { showToast("Add your API key first, then discover models"); apiKey.focus(); return; }
+    if (!p || typeof p.listModels !== "function") return false;
+    if (p.needsKey && !settings.apiKey) return false;
+    if (discovering) return false;
+    discovering = true;
 
     const label = discoverBtn.textContent;
-    discoverBtn.disabled = true; discoverBtn.textContent = "Fetching models…";
+    discoverBtn.disabled = true;
+    if (!silent) discoverBtn.textContent = "Fetching models…";
     try {
       const models = await p.listModels({ apiKey: settings.apiKey, baseUrl: settings.baseUrl || p.baseUrl });
       if (!models.length) throw new Error("This provider returned no models.");
       Store.setModelsFor(settings.provider, models);
       renderModelList();
+      syncSheetPick();
       showToast(`Loaded ${models.length} models from ${p.label}`);
+      return true;
     } catch (err) {
       showToast(Providers.friendlyError(err, p));
+      return false;
     } finally {
-      discoverBtn.disabled = false; discoverBtn.textContent = label;
+      discovering = false;
+      discoverBtn.disabled = false;
+      if (!silent) discoverBtn.textContent = label;
     }
+  }
+
+  discoverBtn.addEventListener("click", async () => {
+    const p = Providers[settings.provider];
+    if (!p || typeof p.listModels !== "function") { showToast("This provider has no model list to fetch"); return; }
+    if (p.needsKey && !settings.apiKey) { showToast("Add your API key first, then discover models"); apiKey.focus(); return; }
+    await discoverModels();
   });
+
+  /* A model ID that worked last month may be retired today. When that happens, drop it
+     from the local list and pull the live one — otherwise every future battle fails too. */
+  function dropDeadModel(model) {
+    const list = Store.modelsFor(settings.provider).filter(m => m !== model);
+    if (!list.length) { showToast("No models left — tap “Discover models” to reload the list"); return; }
+    Store.setModelsFor(settings.provider, list);
+    syncSheetPick();
+    showToast(`“${short(model)}” is retired — removed. Refreshing model list…`);
+    discoverModels({ silent: true });
+  }
   resetAllBtn.addEventListener("click", () => {
     if (!confirm("Reset all settings, history and ratings on this device?")) return;
     Store.resetAll(); settings = Store.getSettings(); newBattle(); renderSettings(); showToast("Reset done");

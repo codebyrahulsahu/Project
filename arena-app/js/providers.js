@@ -172,7 +172,7 @@ _Shall I write this up as a checklist?_`,
       .filter(Boolean)
       .map(String);
     if (!ids.length) throw new Error("This provider returned no models.");
-    return [...new Set(ids)].sort();
+    return filterChatModels([...new Set(ids)].sort());
   }
 
   /* ------------------------------- GEMINI ------------------------------- */
@@ -232,7 +232,66 @@ _Shall I write this up as a checklist?_`,
       .map(m => geminiModelId(m.name))
       .filter(Boolean);
     if (!ids.length) throw new Error("This provider returned no models.");
-    return [...new Set(ids)].sort();
+    return filterChatModels([...new Set(ids)].sort());
+  }
+
+  /* ------------------ KEEPING THE DISCOVERED LIST USEFUL ------------------ */
+  /* "Discover models" returns everything the account can see — including speech,
+     embedding, guard and image models that cannot answer a chat turn at all.
+     Filter those out so battles/agent runs never pick them by accident. */
+  const NON_CHAT_RE =
+    /whisper|tts\b|text-to-speech|embed|moderat|safeguard|guard|rerank|transcri|\basr\b|\bimage\b|imagen|video|veo|\baudio\b|speech|voice|vision|dall/i;
+
+  function filterChatModels(ids) {
+    const kept = (ids || []).filter(id => !NON_CHAT_RE.test(id));
+    return kept.length ? kept : (ids || []); // never end up with an empty pool
+  }
+
+  /* ------------------------ CAN IT CALL TOOLS? ------------------------ */
+  /* Agent mode needs native function calling, and not every chat model has it
+     (Groq rejects the request outright: "`tool calling` is not supported with this model").
+     Providers that don't declare a pattern are assumed tool-capable. */
+  const TOOL_PATTERNS = {
+    groq: /gpt-oss|kimi-k2|llama-4|llama-3\.[13]|qwen3|compound/i,
+    gemini: /gemini/i,
+  };
+
+  function supportsTools(providerId, model) {
+    const re = TOOL_PATTERNS[providerId];
+    if (!re) return true;
+    return re.test(String(model || ""));
+  }
+
+  /* "`tool calling` is not supported with this model" (Groq),
+     "Function calling is not enabled for model …" (Gemini),
+     "tools is not supported" / "does not support function calling" (others). */
+  const NO_TOOLS_RE =
+    /(tool|function)[ _-]?call(ing)?[^"]{0,60}\b(not|un)\b[^a-z]{0,3}(supported|available|enabled|allowed)\b|(tools?|function[ _-]?call(ing)?)[^"]{0,40}\bis\s+not\s+(supported|available|enabled|permitted)\b|does not support (tool|function)|tools?[^"]{0,20}\bnot supported\b/i;
+
+  function isToolUnsupportedError(err) {
+    if (!err) return false;
+    const raw = String(err.message || err || "");
+    return NO_TOOLS_RE.test(raw);
+  }
+
+  /* ---------------------- DID THE MODEL ID DISAPPEAR? ---------------------- */
+  /* Providers retire model IDs constantly (Groq shut llama-3.3-70b-versatile and
+     llama-3.1-8b-instant down on 2026-08-16; Gemini retired the 2.0 models; …).
+     The default lists below are only a starting point — "Discover models" replaces
+     them with the live list. When a run dies because the ID no longer exists we
+     detect it here so the app can drop the model instead of failing forever. */
+  const DEAD_MODEL_RE =
+    /model[^"]{0,80}(not found|does not exist|no longer|decommissioned|retired|deprecated|unsupported|invalid)|decommissioned|is not a valid model|unknown model|no model with/i;
+
+  /** True when the error is "this model ID is gone", not "your key/network is bad". */
+  function isDeadModelError(err) {
+    if (!err) return false;
+    const status = Number(err.status || 0);
+    const raw = String(err.message || err || "");
+    const detail = (raw.match(/^HTTP\s+\d{3}:\s*([\s\S]*)$/) || [])[1] || raw;
+    if (status === 404) return true;
+    if (status === 400 || status === 422) return DEAD_MODEL_RE.test(detail);
+    return DEAD_MODEL_RE.test(raw) && /model/i.test(raw);
   }
 
   /* ------------------------ FRIENDLIER ERROR MESSAGES ------------------------ */
@@ -267,6 +326,12 @@ _Shall I write this up as a checklist?_`,
       }
       if (code === 404) {
         return `Model not found (404) on ${labelFor(provider)}. Tap “Discover models” to refresh the list.`;
+      }
+      if (isToolUnsupportedError({ status: code, message: detail })) {
+        return `${labelFor(provider)} says this model can't call tools. Agent mode needs function calling — pick a tool-capable model or switch to Battle/Direct.`;
+      }
+      if (isDeadModelError({ status: code, message: raw })) {
+        return `This model is no longer available (${code}) — ${labelFor(provider)} retired it. Tap “Discover models” for the current list.`;
       }
       if (code === 400) {
         return `Bad request (400) from ${labelFor(provider)}. ${firstLine(detail) || "Check the model name in Settings."}`;
@@ -304,12 +369,14 @@ _Shall I write this up as a checklist?_`,
       freeTier: true,
       keyUrl: "https://console.groq.com/keys",
       note: "Free key at console.groq.com — no card, generous rate limits.",
+      // llama-3.3-70b-versatile / llama-3.1-8b-instant were shut down on 2026-08-16 —
+      // replaced with the IDs Groq's deprecation page points at.
       defaultModels: [
-        "llama-3.3-70b-versatile",
-        "llama-3.1-8b-instant",
         "openai/gpt-oss-120b",
-        "qwen/qwen3-32b",
-        "moonshotai/kimi-k2-instruct",
+        "openai/gpt-oss-20b",
+        "qwen/qwen3.6-27b",
+        "moonshotai/kimi-k2-instruct-0905",
+        "meta-llama/llama-4-scout-17b-16e-instruct",
       ],
       stream: (o) => openaiStream({ ...o, baseUrl: o.baseUrl || "https://api.groq.com/openai/v1" }),
       listModels: (o) => openaiListModels({ ...o, baseUrl: o.baseUrl || "https://api.groq.com/openai/v1" }),
@@ -323,10 +390,11 @@ _Shall I write this up as a checklist?_`,
       freeTier: true,
       keyUrl: "https://aistudio.google.com/apikey",
       note: "Free key at aistudio.google.com — Google's own API.",
+      // gemini-2.0-flash retired 2026-06-01, gemini-2.5-flash-lite 2025-11-18.
       defaultModels: [
         "gemini-2.5-flash",
-        "gemini-2.5-flash-lite",
-        "gemini-2.0-flash",
+        "gemini-2.5-pro",
+        "gemini-3-flash-preview",
       ],
       stream: (o) => geminiStream({ ...o, baseUrl: o.baseUrl || GEMINI_BASE }),
       listModels: (o) => geminiListModels({ ...o, baseUrl: o.baseUrl || GEMINI_BASE }),
@@ -336,14 +404,16 @@ _Shall I write this up as a checklist?_`,
       label: "OpenRouter",
       baseUrl: "https://openrouter.ai/api/v1",
       needsKey: true,
+      // also used by the agent loop, which reads provider.extraHeaders
+      extraHeaders: { "HTTP-Referer": location.origin, "X-Title": "Arena Lite" },
       keyUrl: "https://openrouter.ai/keys",
       note: "One key for hundreds of models; some are free.",
       defaultModels: [
-        "openai/gpt-4o-mini",
-        "anthropic/claude-3.5-haiku",
-        "google/gemini-2.0-flash-001",
-        "meta-llama/llama-3.3-70b-instruct",
-        "qwen/qwen-2.5-72b-instruct",
+        "openai/gpt-5.5",
+        "anthropic/claude-haiku-4.5",
+        "google/gemini-2.5-flash",
+        "deepseek/deepseek-v3.2",
+        "qwen/qwen3-32b",
       ],
       stream: (o) => openaiStream({
         ...o,
@@ -360,7 +430,8 @@ _Shall I write this up as a checklist?_`,
       allowBaseUrl: true,
       keyUrl: "https://platform.openai.com/api-keys",
       note: "Point the base URL at any OpenAI-compatible server (Ollama, LM Studio, Together…).",
-      defaultModels: ["gpt-4o-mini", "gpt-4o"],
+      // gpt-4o / gpt-4o-mini were retired in Feb 2026; gpt-5.6 tiers are the current API IDs.
+      defaultModels: ["gpt-5.6-terra", "gpt-5.6-sol", "gpt-5.6-luna"],
       stream: (o) => openaiStream(o),
       listModels: (o) => openaiListModels(o),
     },
@@ -368,4 +439,8 @@ _Shall I write this up as a checklist?_`,
 
   global.Providers = PROVIDERS;
   global.Providers.friendlyError = friendlyError;
+  global.Providers.isDeadModelError = isDeadModelError;
+  global.Providers.isToolUnsupportedError = isToolUnsupportedError;
+  global.Providers.supportsTools = supportsTools;
+  global.Providers.filterChatModels = filterChatModels;
 })(window);
