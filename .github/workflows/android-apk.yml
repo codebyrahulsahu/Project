@@ -29,7 +29,16 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: android-build/package-lock.json
+          cache-dependency-path: |
+            android-build/package-lock.json
+            tests/package-lock.json
+
+      # Fail fast on a broken app shell before spending ~10 minutes on Gradle.
+      - name: Run app tests
+        working-directory: tests
+        run: |
+          npm ci
+          npm test
 
       - uses: actions/setup-java@v6
         with:

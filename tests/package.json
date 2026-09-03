@@ -1,0 +1,15 @@
+{
+  "name": "arena-lite-tests",
+  "version": "1.0.0",
+  "private": true,
+  "description": "JSDOM test suite for the Arena Lite app shell (providers, discovery, errors, store)",
+  "scripts": {
+    "test": "node app.test.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "jsdom": "^30.0.1"
+  }
+}

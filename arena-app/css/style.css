@@ -318,9 +318,11 @@ svg{width:22px;height:22px;fill:currentColor;display:block;flex-shrink:0;}
 .card.danger{border-color:rgba(255,107,107,.3);text-align:center;}
 .card-title{font-size:15.5px;font-weight:700;margin:0 0 4px;}
 .card-sub{font-size:13px;color:var(--on-bg-dim);margin:0 0 12px;line-height:1.45;}
-.seg{display:flex;background:var(--surface-2);border-radius:var(--radius-md);padding:4px;gap:4px;margin-bottom:12px;}
-.seg-btn{flex:1;min-height:40px;border-radius:9px;font-size:13px;font-weight:600;color:var(--on-bg-dim);padding:0 6px;}
+.seg{display:flex;flex-wrap:wrap;background:var(--surface-2);border-radius:var(--radius-md);padding:4px;gap:4px;margin-bottom:12px;}
+.seg-btn{flex:1 1 auto;min-width:72px;min-height:40px;border-radius:9px;font-size:13px;font-weight:600;color:var(--on-bg-dim);padding:0 8px;}
 .seg-btn.active{background:var(--surface-3);color:var(--on-bg);}
+.provider-hint{font-size:12.5px;color:var(--on-bg-faint);margin:0 0 10px;line-height:1.45;}
+.provider-hint a{color:var(--accent);text-decoration:none;border-bottom:1px solid currentColor;}
 .field{margin-bottom:12px;}
 .field label{display:block;font-size:12.5px;font-weight:600;color:var(--on-bg-dim);margin-bottom:6px;}
 .field input,.input-row input,textarea{
