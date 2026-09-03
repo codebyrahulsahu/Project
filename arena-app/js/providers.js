@@ -172,7 +172,7 @@ _Shall I write this up as a checklist?_`,
       .filter(Boolean)
       .map(String);
     if (!ids.length) throw new Error("This provider returned no models.");
-    return [...new Set(ids)].sort();
+    return filterChatModels([...new Set(ids)].sort());
   }
 
   /* ------------------------------- GEMINI ------------------------------- */
@@ -232,7 +232,46 @@ _Shall I write this up as a checklist?_`,
       .map(m => geminiModelId(m.name))
       .filter(Boolean);
     if (!ids.length) throw new Error("This provider returned no models.");
-    return [...new Set(ids)].sort();
+    return filterChatModels([...new Set(ids)].sort());
+  }
+
+  /* ------------------ KEEPING THE DISCOVERED LIST USEFUL ------------------ */
+  /* "Discover models" returns everything the account can see — including speech,
+     embedding, guard and image models that cannot answer a chat turn at all.
+     Filter those out so battles/agent runs never pick them by accident. */
+  const NON_CHAT_RE =
+    /whisper|tts\b|text-to-speech|embed|moderat|safeguard|guard|rerank|transcri|\basr\b|\bimage\b|imagen|video|veo|\baudio\b|speech|voice|vision|dall/i;
+
+  function filterChatModels(ids) {
+    const kept = (ids || []).filter(id => !NON_CHAT_RE.test(id));
+    return kept.length ? kept : (ids || []); // never end up with an empty pool
+  }
+
+  /* ------------------------ CAN IT CALL TOOLS? ------------------------ */
+  /* Agent mode needs native function calling, and not every chat model has it
+     (Groq rejects the request outright: "`tool calling` is not supported with this model").
+     Providers that don't declare a pattern are assumed tool-capable. */
+  const TOOL_PATTERNS = {
+    groq: /gpt-oss|kimi-k2|llama-4|llama-3\.[13]|qwen3|compound/i,
+    gemini: /gemini/i,
+  };
+
+  function supportsTools(providerId, model) {
+    const re = TOOL_PATTERNS[providerId];
+    if (!re) return true;
+    return re.test(String(model || ""));
+  }
+
+  /* "`tool calling` is not supported with this model" (Groq),
+     "Function calling is not enabled for model …" (Gemini),
+     "tools is not supported" / "does not support function calling" (others). */
+  const NO_TOOLS_RE =
+    /(tool|function)[ _-]?call(ing)?[^"]{0,60}\b(not|un)\b[^a-z]{0,3}(supported|available|enabled|allowed)\b|(tools?|function[ _-]?call(ing)?)[^"]{0,40}\bis\s+not\s+(supported|available|enabled|permitted)\b|does not support (tool|function)|tools?[^"]{0,20}\bnot supported\b/i;
+
+  function isToolUnsupportedError(err) {
+    if (!err) return false;
+    const raw = String(err.message || err || "");
+    return NO_TOOLS_RE.test(raw);
   }
 
   /* ---------------------- DID THE MODEL ID DISAPPEAR? ---------------------- */
@@ -287,6 +326,9 @@ _Shall I write this up as a checklist?_`,
       }
       if (code === 404) {
         return `Model not found (404) on ${labelFor(provider)}. Tap “Discover models” to refresh the list.`;
+      }
+      if (isToolUnsupportedError({ status: code, message: detail })) {
+        return `${labelFor(provider)} says this model can't call tools. Agent mode needs function calling — pick a tool-capable model or switch to Battle/Direct.`;
       }
       if (isDeadModelError({ status: code, message: raw })) {
         return `This model is no longer available (${code}) — ${labelFor(provider)} retired it. Tap “Discover models” for the current list.`;
@@ -362,6 +404,8 @@ _Shall I write this up as a checklist?_`,
       label: "OpenRouter",
       baseUrl: "https://openrouter.ai/api/v1",
       needsKey: true,
+      // also used by the agent loop, which reads provider.extraHeaders
+      extraHeaders: { "HTTP-Referer": location.origin, "X-Title": "Arena Lite" },
       keyUrl: "https://openrouter.ai/keys",
       note: "One key for hundreds of models; some are free.",
       defaultModels: [
@@ -396,4 +440,7 @@ _Shall I write this up as a checklist?_`,
   global.Providers = PROVIDERS;
   global.Providers.friendlyError = friendlyError;
   global.Providers.isDeadModelError = isDeadModelError;
+  global.Providers.isToolUnsupportedError = isToolUnsupportedError;
+  global.Providers.supportsTools = supportsTools;
+  global.Providers.filterChatModels = filterChatModels;
 })(window);

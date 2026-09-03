@@ -198,11 +198,34 @@
     vv.addEventListener("scroll", onVV);
   }
 
+  /* ================= TOOL CAPABILITY ================= */
+  /* Providers reject tool calls on models that don't support them, and the rejected
+     model is remembered per device so Agent mode never picks it again. */
+  function modelSupportsTools(model) {
+    const noTools = settings.noTools || {};
+    if ((noTools[settings.provider] || []).includes(model)) return false;
+    return Providers.supportsTools(settings.provider, model) !== false;
+  }
+  function markNoTools(model) {
+    const map = { ...(settings.noTools || {}) };
+    const list = map[settings.provider] || [];
+    if (!list.includes(model)) map[settings.provider] = [...list, model];
+    settings = Store.setSettings({ noTools: map });
+  }
+
   /* ================= BATTLE ================= */
   function pickModels() {
     const models = Store.modelsFor(settings.provider);
     if (!models.length) return null;
-    if (settings.mode === "single" || settings.mode === "agent") return [settings.pickA && models.includes(settings.pickA) ? settings.pickA : models[0], null];
+    if (settings.mode === "agent") {
+      // Agent mode needs function calling — whisper/compound/plain chat models 400 on tools.
+      const capable = models.filter(m => modelSupportsTools(m));
+      const a = models.includes(settings.pickA) && modelSupportsTools(settings.pickA)
+        ? settings.pickA
+        : (capable[0] || models[0]);
+      return [a, null];
+    }
+    if (settings.mode === "single") return [settings.pickA && models.includes(settings.pickA) ? settings.pickA : models[0], null];
     if (settings.mode === "side") {
       const a = models.includes(settings.pickA) ? settings.pickA : models[0];
       const b = models.includes(settings.pickB) ? settings.pickB : (models.find(m => m !== a) || a);
@@ -261,7 +284,10 @@
     const [modelA, modelB] = picked;
     current = { id: String(Date.now()), prompt: text, modelA, modelB, textA: "", textB: "", msA: 0, msB: 0, vote: null, mode: settings.mode, ts: Date.now(), provider: settings.provider };
 
-    if (settings.mode === "agent") return runAgent(text, modelA, provider);
+    if (settings.mode === "agent") {
+      if (!modelSupportsTools(modelA)) showToast(`${short(modelA)} may not support tools — Agent mode can fail`);
+      return runAgent(text, modelA, provider);
+    }
 
     // UI reset
     hero.hidden = true; thread.hidden = false;
@@ -476,7 +502,7 @@
     });
   }
 
-  async function runAgent(text, model, provider) {
+  async function runAgent(text, model, provider, opts = {}) {
     hero.hidden = true; thread.hidden = false;
     userMsg.textContent = text;
     voteRow.hidden = true; reveal.hidden = true;
@@ -495,7 +521,7 @@
 
     try {
       const r = await Agent.run({
-        provider, settings, model, prompt: text, signal: controller.signal,
+        provider, settings, model, prompt: text, signal: controller.signal, noTools: !!opts.noTools,
         onEvent: ev => {
           if (ev.type === "step") addThought(ev.text);
           else if (ev.type === "tool_call") { addStep(ev); current.steps.push({ id: ev.id, name: ev.name, args: ev.args }); agentOut.innerHTML = ""; }
@@ -509,6 +535,12 @@
       agentStatus.textContent = `${(current.msA / 1000).toFixed(1)}s · ${current.steps.length} tool${current.steps.length === 1 ? "" : "s"}`;
     } catch (err) {
       if (err && err.name === "AbortError") { agentStatus.textContent = "stopped"; renderNow(agentOut, current.textA || "_Stopped._"); }
+      else if (Providers.isToolUnsupportedError && Providers.isToolUnsupportedError(err) && !opts.noTools) {
+        // The provider refuses tools for this model — remember it and answer as plain chat.
+        markNoTools(model);
+        showToast(`${short(model)} can't call tools — retrying without them`);
+        return runAgent(text, model, provider, { noTools: true });
+      }
       else {
         if (Providers.isDeadModelError && Providers.isDeadModelError(err)) dropDeadModel(model);
         agentOut.classList.add("error"); agentOut.textContent = "⚠️ " + Providers.friendlyError(err, provider); agentStatus.textContent = "error";

@@ -328,6 +328,41 @@ async function main() {
     eq(P.isDeadModelError(null), false, "null is safe");
   });
 
+  await check("discovery drops models that can't hold a chat turn (speech, embeddings, guards…)", () => {
+    const live = [
+      "openai/gpt-oss-120b",
+      "whisper-large-v3",
+      "text-embedding-3-large",
+      "gemini-2.5-flash-image-preview",
+      "meta-llama/llama-guard-4-12b",
+      "openai/gpt-oss-safeguard-20b",
+      "moonshotai/kimi-k2-instruct-0905",
+    ];
+    const kept = P.filterChatModels(live);
+    eq(kept.join(","), "openai/gpt-oss-120b,moonshotai/kimi-k2-instruct-0905", "only chat models survive");
+    eq(P.filterChatModels(["whisper-large-v3"]).join(","), "whisper-large-v3", "never empties the pool");
+  });
+
+  await check("supportsTools knows which chat models can call tools", () => {
+    eq(P.supportsTools("groq", "openai/gpt-oss-120b"), true, "gpt-oss is tool-capable");
+    eq(P.supportsTools("groq", "moonshotai/kimi-k2-instruct-0905"), true, "kimi k2 is tool-capable");
+    eq(P.supportsTools("groq", "meta-llama/llama-4-scout-17b-16e-instruct"), true, "llama 4 is tool-capable");
+    eq(P.supportsTools("groq", "whisper-large-v3"), false, "whisper cannot call tools");
+    eq(P.supportsTools("gemini", "gemini-2.5-flash"), true, "gemini can call tools");
+    eq(P.supportsTools("openai", "gpt-5.6-terra"), true, "providers without a pattern default to capable");
+  });
+
+  await check("a tool-calling refusal is detected and explained", () => {
+    const err = httpErr(400, '{"error":{"message":"`tool calling` is not supported with this model","type":"invalid_request_error"}}');
+    eq(P.isToolUnsupportedError(err), true, "groq tool refusal detected");
+    eq(P.isToolUnsupportedError(httpErr(400, '{"error":{"message":"Function calling is not enabled for model x"}}')), true, "gemini wording");
+    eq(P.isToolUnsupportedError(httpErr(401, "Incorrect API key provided")), false, "bad key is not a tools error");
+    eq(P.isToolUnsupportedError(httpErr(429, "rate limit")), false, "rate limit is not a tools error");
+    const msg = P.friendlyError(err, P.groq);
+    includes(msg, "can't call tools", "explains the refusal");
+    includes(msg, "Agent mode", "names agent mode");
+  });
+
   await check("default model lists avoid IDs the providers already retired", () => {
     const retired = {
       groq: ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"],       // shut down 2026-08-16
@@ -379,7 +414,7 @@ async function main() {
   /* ============ H. static wiring ============ */
   console.log("\nwiring");
 
-  await check("index.html exposes every provider plus discovery; sw.js ships the v4 cache", () => {
+  await check("index.html exposes every provider plus discovery; sw.js ships the v5 cache", () => {
     const appDom = new JSDOM(read("arena-app/index.html"));
     const doc = appDom.window.document;
     const ids = Object.keys(P).filter(k => typeof P[k] === "object");
@@ -388,7 +423,7 @@ async function main() {
     }
     assert(doc.getElementById("discoverBtn"), "discover button present");
     assert(doc.getElementById("providerHint"), "provider hint present");
-    includes(read("arena-app/sw.js"), "arena-lite-v4", "service worker cache bumped");
+    includes(read("arena-app/sw.js"), "arena-lite-v5", "service worker cache bumped");
   });
 
   await check("app.js drops retired models and auto-discovers after a key save", () => {
@@ -396,6 +431,14 @@ async function main() {
     includes(app, "isDeadModelError", "detects retired-model errors");
     includes(app, "dropDeadModel", "removes the dead model from the list");
     includes(app, "discoverModels({ silent: true })", "refreshes the live list quietly");
+  });
+
+  await check("agent mode avoids tool-less models and retries without tools", () => {
+    const app = read("arena-app/js/app.js");
+    includes(app, "modelSupportsTools", "filters the agent model pool");
+    includes(app, "markNoTools", "remembers the model that refused tools");
+    includes(app, 'runAgent(text, model, provider, { noTools: true })', "retries as plain chat");
+    includes(read("arena-app/js/agent.js"), "noTools", "agent loop can skip tool specs");
   });
 
   /* ------------------------------ summary ------------------------------ */

@@ -43,8 +43,10 @@ phone ki home screen pe install ho jata hai.
   - `calculator` → whitelist-checked expression (sirf numbers, operators, `Math.*`)
   - `write_file` → session memory mein; UI mein card se copy/download
   - `get_time` → device ka time/timezone
-- Tool-calling ke liye model ko function calling support karna chahiye (GPT-4o-mini, Claude via
-  OpenRouter, Gemini, Llama-3.x-70B, Qwen-2.5 sab karte hain)
+- Tool-calling ke liye model ko **function calling** support karna chahiye. Agent mode apne aap
+  tool-capable model chunta hai; agar phir bhi provider mana kare
+  (“`tool calling` is not supported with this model”) toh app us model ko yaad rakh kar
+  **bina tools ke plain chat** mein retry karta hai — kaam rukta nahi
 - Demo provider mein loop **simulate** hota hai — calculator/run_js/write_file asli chalte hain,
   web tools network hone pe asli, warna canned
 

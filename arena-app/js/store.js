@@ -22,6 +22,7 @@
     apiKey: "",
     baseUrl: "",
     models: {},        // provider → [model ids]
+    noTools: {},       // provider → [model ids we know can't call tools]
     systemPrompt: "",
     mode: "battle",    // battle | side | single
     pickA: "", pickB: "",
