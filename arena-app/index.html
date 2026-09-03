@@ -59,7 +59,7 @@
     <p class="history-empty" id="historyEmpty">No battles yet. Ask something to start.</p>
     <div class="drawer-foot">
       <button class="drawer-link" id="clearHistoryBtn">Clear history</button>
-      <span class="drawer-version">v1.0 · local only</span>
+      <span class="drawer-version">v1.1 · local only</span>
     </div>
   </aside>
 
@@ -169,6 +169,8 @@
       <p class="card-sub">Your key is stored only in this browser (localStorage) and sent directly to the provider — no server in between.</p>
       <div class="seg" id="providerSeg" role="radiogroup">
         <button class="seg-btn active" data-provider="demo" role="radio" aria-checked="true">Demo</button>
+        <button class="seg-btn" data-provider="groq" role="radio" aria-checked="false">Groq</button>
+        <button class="seg-btn" data-provider="gemini" role="radio" aria-checked="false">Gemini</button>
         <button class="seg-btn" data-provider="openrouter" role="radio" aria-checked="false">OpenRouter</button>
         <button class="seg-btn" data-provider="openai" role="radio" aria-checked="false">OpenAI‑compatible</button>
       </div>
@@ -186,17 +188,19 @@
           </button>
         </div>
       </div>
+      <p class="provider-hint" id="providerHint" hidden></p>
       <p class="demo-note" id="demoNote">Demo mode streams canned answers so you can feel the UI without a key.</p>
     </section>
 
     <section class="card">
       <h2 class="card-title">Models in the pool</h2>
-      <p class="card-sub">Each battle picks two at random. Add the model IDs your provider supports.</p>
+      <p class="card-sub">Each battle picks two at random. Add model IDs yourself, or pull the live list from your provider.</p>
       <div class="model-list" id="modelList"></div>
       <div class="input-row">
         <input id="newModel" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="e.g. openai/gpt-4o-mini" enterkeyhint="done">
         <button class="btn-primary small" id="addModelBtn">Add</button>
       </div>
+      <button class="btn-ghost" id="discoverBtn">↻ Discover models from provider</button>
     </section>
 
     <section class="card">

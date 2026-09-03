@@ -25,7 +25,8 @@
 
   const providerSeg = $("providerSeg"), baseUrlField = $("baseUrlField"), baseUrl = $("baseUrl");
   const apiKeyField = $("apiKeyField"), apiKey = $("apiKey"), toggleKey = $("toggleKey"), demoNote = $("demoNote");
-  const modelList = $("modelList"), newModel = $("newModel"), addModelBtn = $("addModelBtn");
+  const providerHint = $("providerHint");
+  const modelList = $("modelList"), newModel = $("newModel"), addModelBtn = $("addModelBtn"), discoverBtn = $("discoverBtn");
   const systemPrompt = $("systemPrompt"), resetAllBtn = $("resetAllBtn");
 
   const composer = $("composer"), promptInput = $("promptInput"), sendBtn = $("sendBtn"), composerNote = $("composerNote");
@@ -295,7 +296,7 @@
       out.classList.remove("streaming");
       if (err && err.name === "AbortError") { renderNow(out, current[key] || "_Stopped._"); meta.textContent = "stopped"; return; }
       out.classList.add("error");
-      out.textContent = "⚠️ " + (err && err.message ? err.message : "Request failed");
+      out.textContent = "⚠️ " + Providers.friendlyError(err, provider);
       meta.textContent = "error";
     });
 
@@ -507,7 +508,7 @@
       agentStatus.textContent = `${(current.msA / 1000).toFixed(1)}s · ${current.steps.length} tool${current.steps.length === 1 ? "" : "s"}`;
     } catch (err) {
       if (err && err.name === "AbortError") { agentStatus.textContent = "stopped"; renderNow(agentOut, current.textA || "_Stopped._"); }
-      else { agentOut.classList.add("error"); agentOut.textContent = "⚠️ " + (err && err.message ? err.message : "Agent failed"); agentStatus.textContent = "error"; }
+      else { agentOut.classList.add("error"); agentOut.textContent = "⚠️ " + Providers.friendlyError(err, provider); agentStatus.textContent = "error"; }
     } finally {
       agentOut.classList.remove("streaming"); agentStatus.classList.remove("busy");
       agentSteps.querySelectorAll(".step.running").forEach(li => { li.classList.remove("running"); li.querySelector(".step-ms").textContent = "—"; });
@@ -542,13 +543,23 @@
     });
     const p = Providers[settings.provider];
     apiKeyField.hidden = !p.needsKey;
-    baseUrlField.hidden = settings.provider !== "openai";
-    demoNote.hidden = settings.provider !== "demo";
+    baseUrlField.hidden = !p.allowBaseUrl;
+    demoNote.hidden = !!p.needsKey;
     apiKey.value = settings.apiKey || "";
     baseUrl.value = settings.baseUrl || "";
     baseUrl.placeholder = p.baseUrl || "";
     systemPrompt.value = settings.systemPrompt || "";
+    renderProviderHint(p);
     renderModelList();
+  }
+  function renderProviderHint(p) {
+    if (!p.needsKey) { providerHint.hidden = true; providerHint.textContent = ""; return; }
+    providerHint.hidden = false;
+    if (p.freeTier && p.keyUrl) {
+      providerHint.innerHTML = `${Markdown.esc(p.note || "")} <a href="${Markdown.esc(p.keyUrl)}" target="_blank" rel="noopener noreferrer">Get a free key ↗</a>`;
+    } else {
+      providerHint.textContent = p.note || "";
+    }
   }
   function renderModelList() {
     const models = Store.modelsFor(settings.provider);
@@ -579,6 +590,27 @@
   }
   addModelBtn.addEventListener("click", addModel);
   newModel.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); addModel(); } });
+
+  // Pull the live model list straight from the provider (Groq / Gemini / OpenRouter / OpenAI …)
+  discoverBtn.addEventListener("click", async () => {
+    const p = Providers[settings.provider];
+    if (!p || typeof p.listModels !== "function") { showToast("This provider has no model list to fetch"); return; }
+    if (p.needsKey && !settings.apiKey) { showToast("Add your API key first, then discover models"); apiKey.focus(); return; }
+
+    const label = discoverBtn.textContent;
+    discoverBtn.disabled = true; discoverBtn.textContent = "Fetching models…";
+    try {
+      const models = await p.listModels({ apiKey: settings.apiKey, baseUrl: settings.baseUrl || p.baseUrl });
+      if (!models.length) throw new Error("This provider returned no models.");
+      Store.setModelsFor(settings.provider, models);
+      renderModelList();
+      showToast(`Loaded ${models.length} models from ${p.label}`);
+    } catch (err) {
+      showToast(Providers.friendlyError(err, p));
+    } finally {
+      discoverBtn.disabled = false; discoverBtn.textContent = label;
+    }
+  });
   resetAllBtn.addEventListener("click", () => {
     if (!confirm("Reset all settings, history and ratings on this device?")) return;
     Store.resetAll(); settings = Store.getSettings(); newBattle(); renderSettings(); showToast("Reset done");
