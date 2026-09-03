@@ -1,0 +1,19 @@
+{
+  "name": "arena-lite-android",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Capacitor wrapper that packages ../arena-app as an Android APK",
+  "scripts": {
+    "sync": "cap sync android",
+    "open": "cap open android",
+    "apk:debug": "cd android && ./gradlew assembleDebug",
+    "apk:release": "cd android && ./gradlew assembleRelease"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.5.1",
+    "@capacitor/core": "^8.5.1"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.5.1"
+  }
+}

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Arena Lite</string>
+    <string name="title_activity_main">Arena Lite</string>
+    <string name="package_name">com.arenalite.app</string>
+    <string name="custom_url_scheme">com.arenalite.app</string>
+</resources>

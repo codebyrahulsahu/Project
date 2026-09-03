@@ -1,0 +1,6 @@
+node_modules/
+android/
+out/
+*.apk
+*.aab
+*.keystore
