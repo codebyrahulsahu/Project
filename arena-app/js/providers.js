@@ -235,6 +235,26 @@ _Shall I write this up as a checklist?_`,
     return [...new Set(ids)].sort();
   }
 
+  /* ---------------------- DID THE MODEL ID DISAPPEAR? ---------------------- */
+  /* Providers retire model IDs constantly (Groq shut llama-3.3-70b-versatile and
+     llama-3.1-8b-instant down on 2026-08-16; Gemini retired the 2.0 models; …).
+     The default lists below are only a starting point — "Discover models" replaces
+     them with the live list. When a run dies because the ID no longer exists we
+     detect it here so the app can drop the model instead of failing forever. */
+  const DEAD_MODEL_RE =
+    /model[^"]{0,80}(not found|does not exist|no longer|decommissioned|retired|deprecated|unsupported|invalid)|decommissioned|is not a valid model|unknown model|no model with/i;
+
+  /** True when the error is "this model ID is gone", not "your key/network is bad". */
+  function isDeadModelError(err) {
+    if (!err) return false;
+    const status = Number(err.status || 0);
+    const raw = String(err.message || err || "");
+    const detail = (raw.match(/^HTTP\s+\d{3}:\s*([\s\S]*)$/) || [])[1] || raw;
+    if (status === 404) return true;
+    if (status === 400 || status === 422) return DEAD_MODEL_RE.test(detail);
+    return DEAD_MODEL_RE.test(raw) && /model/i.test(raw);
+  }
+
   /* ------------------------ FRIENDLIER ERROR MESSAGES ------------------------ */
   /* Raw provider errors are noisy ("HTTP 401: {"error":{"message":"Incorrect API key…"}}").
      Turn the common ones into something a person can act on. */
@@ -267,6 +287,9 @@ _Shall I write this up as a checklist?_`,
       }
       if (code === 404) {
         return `Model not found (404) on ${labelFor(provider)}. Tap “Discover models” to refresh the list.`;
+      }
+      if (isDeadModelError({ status: code, message: raw })) {
+        return `This model is no longer available (${code}) — ${labelFor(provider)} retired it. Tap “Discover models” for the current list.`;
       }
       if (code === 400) {
         return `Bad request (400) from ${labelFor(provider)}. ${firstLine(detail) || "Check the model name in Settings."}`;
@@ -304,12 +327,14 @@ _Shall I write this up as a checklist?_`,
       freeTier: true,
       keyUrl: "https://console.groq.com/keys",
       note: "Free key at console.groq.com — no card, generous rate limits.",
+      // llama-3.3-70b-versatile / llama-3.1-8b-instant were shut down on 2026-08-16 —
+      // replaced with the IDs Groq's deprecation page points at.
       defaultModels: [
-        "llama-3.3-70b-versatile",
-        "llama-3.1-8b-instant",
         "openai/gpt-oss-120b",
-        "qwen/qwen3-32b",
-        "moonshotai/kimi-k2-instruct",
+        "openai/gpt-oss-20b",
+        "qwen/qwen3.6-27b",
+        "moonshotai/kimi-k2-instruct-0905",
+        "meta-llama/llama-4-scout-17b-16e-instruct",
       ],
       stream: (o) => openaiStream({ ...o, baseUrl: o.baseUrl || "https://api.groq.com/openai/v1" }),
       listModels: (o) => openaiListModels({ ...o, baseUrl: o.baseUrl || "https://api.groq.com/openai/v1" }),
@@ -323,10 +348,11 @@ _Shall I write this up as a checklist?_`,
       freeTier: true,
       keyUrl: "https://aistudio.google.com/apikey",
       note: "Free key at aistudio.google.com — Google's own API.",
+      // gemini-2.0-flash retired 2026-06-01, gemini-2.5-flash-lite 2025-11-18.
       defaultModels: [
         "gemini-2.5-flash",
-        "gemini-2.5-flash-lite",
-        "gemini-2.0-flash",
+        "gemini-2.5-pro",
+        "gemini-3-flash-preview",
       ],
       stream: (o) => geminiStream({ ...o, baseUrl: o.baseUrl || GEMINI_BASE }),
       listModels: (o) => geminiListModels({ ...o, baseUrl: o.baseUrl || GEMINI_BASE }),
@@ -339,11 +365,11 @@ _Shall I write this up as a checklist?_`,
       keyUrl: "https://openrouter.ai/keys",
       note: "One key for hundreds of models; some are free.",
       defaultModels: [
-        "openai/gpt-4o-mini",
-        "anthropic/claude-3.5-haiku",
-        "google/gemini-2.0-flash-001",
-        "meta-llama/llama-3.3-70b-instruct",
-        "qwen/qwen-2.5-72b-instruct",
+        "openai/gpt-5.5",
+        "anthropic/claude-haiku-4.5",
+        "google/gemini-2.5-flash",
+        "deepseek/deepseek-v3.2",
+        "qwen/qwen3-32b",
       ],
       stream: (o) => openaiStream({
         ...o,
@@ -360,7 +386,8 @@ _Shall I write this up as a checklist?_`,
       allowBaseUrl: true,
       keyUrl: "https://platform.openai.com/api-keys",
       note: "Point the base URL at any OpenAI-compatible server (Ollama, LM Studio, Together…).",
-      defaultModels: ["gpt-4o-mini", "gpt-4o"],
+      // gpt-4o / gpt-4o-mini were retired in Feb 2026; gpt-5.6 tiers are the current API IDs.
+      defaultModels: ["gpt-5.6-terra", "gpt-5.6-sol", "gpt-5.6-luna"],
       stream: (o) => openaiStream(o),
       listModels: (o) => openaiListModels(o),
     },
@@ -368,4 +395,5 @@ _Shall I write this up as a checklist?_`,
 
   global.Providers = PROVIDERS;
   global.Providers.friendlyError = friendlyError;
+  global.Providers.isDeadModelError = isDeadModelError;
 })(window);

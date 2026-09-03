@@ -309,6 +309,39 @@ async function main() {
     includes(P.friendlyError(httpErr(503, ""), P.gemini), "having trouble", "friendly 503");
   });
 
+  await check("a retired model (400 'decommissioned') reads as 'no longer available'", () => {
+    const msg = P.friendlyError(httpErr(400, '{"error":{"message":"The model llama-3.3-70b-versatile has been decommissioned"}}'), P.groq);
+    includes(msg, "no longer available", "retired wording");
+    includes(msg, "Discover models", "suggests discovery");
+  });
+
+  /* ============ E2. retired-model detection ============ */
+  console.log("\nretired models");
+
+  await check("isDeadModelError spots 404s and decommissioned models", () => {
+    eq(P.isDeadModelError(httpErr(404, "model not found")), true, "404 is a dead model");
+    eq(P.isDeadModelError(httpErr(400, '{"error":{"message":"The model `x` has been decommissioned"}}')), true, "decommissioned 400");
+    eq(P.isDeadModelError(httpErr(400, "Unknown model: foo")), true, "unknown model 400");
+    eq(P.isDeadModelError(httpErr(401, "Incorrect API key provided")), false, "bad key is not a dead model");
+    eq(P.isDeadModelError(httpErr(429, "rate limit")), false, "rate limit is not a dead model");
+    eq(P.isDeadModelError(new TypeError("Failed to fetch")), false, "network error is not a dead model");
+    eq(P.isDeadModelError(null), false, "null is safe");
+  });
+
+  await check("default model lists avoid IDs the providers already retired", () => {
+    const retired = {
+      groq: ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"],       // shut down 2026-08-16
+      gemini: ["gemini-2.0-flash", "gemini-2.5-flash-lite"],           // retired 2026-06-01 / 2025-11-18
+      openai: ["gpt-4o", "gpt-4o-mini"],                               // retired 2026-02-13
+      openrouter: ["anthropic/claude-3.5-haiku", "google/gemini-2.0-flash-001"],
+    };
+    for (const [provider, ids] of Object.entries(retired)) {
+      for (const id of ids) {
+        assert(!P[provider].defaultModels.includes(id), `${provider} defaults still list retired ${id}`);
+      }
+    }
+  });
+
   /* ============ F. store ============ */
   console.log("\nstore");
 
@@ -346,7 +379,7 @@ async function main() {
   /* ============ H. static wiring ============ */
   console.log("\nwiring");
 
-  await check("index.html exposes every provider plus discovery; sw.js ships the v3 cache", () => {
+  await check("index.html exposes every provider plus discovery; sw.js ships the v4 cache", () => {
     const appDom = new JSDOM(read("arena-app/index.html"));
     const doc = appDom.window.document;
     const ids = Object.keys(P).filter(k => typeof P[k] === "object");
@@ -355,7 +388,14 @@ async function main() {
     }
     assert(doc.getElementById("discoverBtn"), "discover button present");
     assert(doc.getElementById("providerHint"), "provider hint present");
-    includes(read("arena-app/sw.js"), "arena-lite-v3", "service worker cache bumped");
+    includes(read("arena-app/sw.js"), "arena-lite-v4", "service worker cache bumped");
+  });
+
+  await check("app.js drops retired models and auto-discovers after a key save", () => {
+    const app = read("arena-app/js/app.js");
+    includes(app, "isDeadModelError", "detects retired-model errors");
+    includes(app, "dropDeadModel", "removes the dead model from the list");
+    includes(app, "discoverModels({ silent: true })", "refreshes the live list quietly");
   });
 
   /* ------------------------------ summary ------------------------------ */

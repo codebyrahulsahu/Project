@@ -63,10 +63,15 @@ Cloudflare Pages) pe daal do. HTTPS pe PWA install prompt aur mic-jaisi cheezein
 
 ## Asli models connect karna
 
-1. **Settings** tab → Provider **OpenRouter** chuno
-2. https://openrouter.ai/keys se key lao, paste karo
-3. Model pool mein jo IDs chahiye add/remove karo (e.g. `openai/gpt-4o-mini`, `anthropic/claude-3.5-haiku`)
+1. **Settings** tab → Provider chuno (OpenRouter / Groq / Gemini / OpenAI-compatible)
+2. Key lao (OpenRouter: https://openrouter.ai/keys · Groq: https://console.groq.com/keys ·
+   Gemini: https://aistudio.google.com/apikey) aur paste karo
+3. Key save hote hi app **“Discover models”** khud chala kar provider ki live model list laata hai —
+   hardcoded defaults sirf fallback hain (providers model IDs retire karte rehte hain)
 4. Battle tab pe wapas → ask karo
+
+Agar koi model kaam na kare (404 / “decommissioned”), app us ID ko local list se hata deta hai
+aur list refresh kar deta hai; warna **Discover models** button dabao.
 
 Koi aur OpenAI-compatible endpoint ho toh **OpenAI-compatible** chunke Base URL bhar do
 (e.g. Groq: `https://api.groq.com/openai/v1`, local Ollama: `http://localhost:11434/v1`).
